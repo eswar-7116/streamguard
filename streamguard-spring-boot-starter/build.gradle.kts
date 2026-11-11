@@ -1,6 +1,10 @@
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SourcesJar
+
 plugins {
     `java-library`
-    `maven-publish`
+    id("com.vanniktech.maven.publish")
     id("me.champeau.jmh")
 }
 
@@ -12,8 +16,6 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
-    withSourcesJar()
-    withJavadocJar()
 }
 
 dependencies {
@@ -45,28 +47,52 @@ tasks.test {
     }
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
-            // Write resolved versions into the POM, since dependencies are declared without them
-            versionMapping {
-                usage("java-api") { fromResolutionOf("runtimeClasspath") }
-                usage("java-runtime") { fromResolutionResult() }
+mavenPublishing {
+    configure(JavaLibrary(javadocJar = JavadocJar.Javadoc(), sourcesJar = SourcesJar.Sources()))
+    publishToMavenCentral()
+    signAllPublications()
+
+    coordinates("io.github.eswar-7116", "streamguard-spring-boot-starter", version.toString())
+
+    pom {
+        name = "StreamGuard Spring Boot Starter"
+        description = project.description
+        inceptionYear = "2026"
+        url = "https://github.com/eswar-7116/StreamGuard"
+        licenses {
+            license {
+                name = "MIT License"
+                url = "https://opensource.org/licenses/MIT"
+                distribution = "repo"
             }
-            pom {
-                name = "StreamGuard Spring Boot Starter"
-                description = project.description
-                url = "https://github.com/eswar-7116/StreamGuard"
-                scm {
-                    url = "https://github.com/eswar-7116/StreamGuard"
-                }
+        }
+        developers {
+            developer {
+                id = "eswar-7116"
+                name = "Eswar Dudi"
+                url = "https://github.com/eswar-7116"
             }
+        }
+        scm {
+            url = "https://github.com/eswar-7116/StreamGuard"
+            connection = "scm:git:git://github.com/eswar-7116/StreamGuard.git"
+            developerConnection = "scm:git:ssh://git@github.com/eswar-7116/StreamGuard.git"
         }
     }
 }
 
-// JMH microbenchmarks live in src/jmh/java; run with ./gradlew jmh
+// Dependencies are declared without versions (the Spring Boot BOM supplies them), so write the
+// resolved versions into the POM
+publishing {
+    publications.withType<MavenPublication>().configureEach {
+        versionMapping {
+            usage("java-api") { fromResolutionOf("runtimeClasspath") }
+            usage("java-runtime") { fromResolutionResult() }
+        }
+    }
+}
+
+// JMH microbenchmarks live in src/jmh/java; run with ./gradlew :streamguard-spring-boot-starter:jmh
 jmh {
     jmhVersion = "1.37"
     includeTests = false

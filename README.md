@@ -35,24 +35,13 @@ Java 21+ and a Spring Boot 4.1 web application on Spring MVC (servlet stack).
 
 ## Installation
 
-StreamGuard is not on Maven Central yet. Install it to your local Maven repository:
-
-```bash
-./gradlew :streamguard-spring-boot-starter:publishToMavenLocal
-```
-
-Then add the dependency.
+StreamGuard is published to Maven Central.
 
 **Gradle**
 
 ```kotlin
-repositories {
-    mavenLocal()
-    mavenCentral()
-}
-
 dependencies {
-    implementation("io.github.eswar-7116:streamguard-spring-boot-starter:0.1.0-SNAPSHOT")
+    implementation("io.github.eswar-7116:streamguard-spring-boot-starter:0.1.0")
 }
 ```
 
@@ -62,7 +51,7 @@ dependencies {
 <dependency>
     <groupId>io.github.eswar-7116</groupId>
     <artifactId>streamguard-spring-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -242,14 +231,13 @@ Your IDE autocompletes these properties with descriptions.
 StreamGuard currently monitors the JVM it runs in. Each instance of a horizontally scaled service
 sees only its own traffic, and state resets on restart.
 
-1. **Maven Central release.**
-2. **Fleet view**: each instance pushes closed 1-second buckets (counters plus histogram) to a
+1. **Fleet view**: each instance pushes closed 1-second buckets (counters plus histogram) to a
    collector, which merges them by bucket id. Histograms merge by addition, so fleet-wide
    percentiles stay exact to the bin. Detection, forecasting and alerting then run once, on the
    merged series.
-3. **Distributed security signals**: instances ship each bucket's heaviest clients and a
+2. **Distributed security signals**: instances ship each bucket's heaviest clients and a
    HyperLogLog of distinct paths per client, so an attacker spread across instances is still caught.
-4. **Retention**: optional export of closed buckets for history beyond 15 minutes.
+3. **Retention**: optional export of closed buckets for history beyond 15 minutes.
 
 [DESIGN.md](DESIGN.md#what-changes-for-multi-node) covers the multi-node design.
 
