@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreamGuard</title>
+<link rel="icon" href="data:,">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  /* Tailwind zinc scale, light mode */
+  :root {
+    color-scheme: light;
+    --bg: #fafafa; --panel: #ffffff; --line: #e4e4e7; --line-soft: #f4f4f5;
+    --fg: #18181b; --fg-2: #3f3f46; --muted: #71717a;
+    --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .header-inner { max-width: 1440px; margin: 0 auto; padding: 14px 24px; display: flex;
+                  align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  #status { margin-left: auto; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #status.stale { color: var(--bad); }
+
+  main { padding: 20px 24px 32px; display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr));
+         max-width: 1440px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px;
+           min-width: 0; grid-column: span 6; }
+  .span-12 { grid-column: 1 / -1; } .span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; }
+  @media (max-width: 1000px) { .panel, .span-5, .span-7 { grid-column: 1 / -1; } main { padding: 16px; } }
+  .panel-head { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; min-height: 28px; }
+  .panel h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--fg); }
+  .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .chart-wrap { position: relative; height: 260px; }
+
+  .kpis { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+          background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  .kpi { padding: 14px 16px; border-left: 1px solid var(--line); }
+  .kpi:first-child { border-left: 0; }
+  @media (max-width: 700px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kpi:nth-child(3) { border-left: 0; }
+    .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
+  }
+  .kpi .label { color: var(--muted); font-size: 12px; }
+  .kpi .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .value.bad { color: var(--bad); } .kpi .value.warn { color: var(--warn); }
+
+  select { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
+           padding: 3px 6px; font: inherit; font-size: 13px; max-width: 60%; margin-left: auto; }
+
+  .table-wrap { overflow-x: auto; max-height: 300px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--panel);
+       border-bottom: 1px solid var(--line); }
+  td.ep { max-width: 280px; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+  td { color: var(--fg-2); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--line-soft); }
+  tbody tr.selected { background: var(--line-soft); }
+  tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--fg); }
+  tbody tr.idle td { color: var(--muted); }
+  .state { font-weight: 500; }
+  td.HEALTHY { color: var(--ok); } td.DEGRADED, td.RECOVERING { color: var(--warn); } td.DOWN { color: var(--bad); }
+  td.PENDING, td.NONE { color: var(--muted); }
+  .err-hi { color: var(--bad); }
+
+  .feed { max-height: 300px; overflow-y: auto; font-size: 13px; }
+  .feed .row { display: grid; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+  #anomalies .row { grid-template-columns: auto 128px minmax(0, 1fr) auto; }
+  #threats .row { grid-template-columns: 128px minmax(0, 1fr) auto; }
+  .feed .t, .feed .v { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .feed .ep { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 11px; font-weight: 500; letter-spacing: .2px; color: var(--fg-2); white-space: nowrap;
+         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .tag.ERROR_SPIKE, .tag.LATENCY_SPIKE, .tag.POTENTIAL_DDOS, .tag.BRUTE_FORCE { color: var(--bad); }
+  .tag.SCANNER, .tag.TRAFFIC_DROP { color: var(--warn); }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .error-banner { grid-column: 1 / -1; background: #fef2f2; color: var(--bad); border: 1px solid #fecaca;
+                  border-radius: 6px; padding: 10px 14px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <h1>StreamGuard</h1>
+    <span class="sub">Traffic monitor</span>
+    <span id="status">Connecting…</span>
+  </div>
+</header>
+<main>
+  <div id="chartError" class="error-banner">Chart.js failed to load from the CDN, so charts are disabled. Tables still update.</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">Requests per second (1m)</div><div class="value" id="kpiRps">—</div></div>
+    <div class="kpi"><div class="label">Error rate (1m)</div><div class="value" id="kpiErr">—</div></div>
+    <div class="kpi"><div class="label">Unhealthy routes</div><div class="value" id="kpiUnhealthy">—</div></div>
+    <div class="kpi"><div class="label">Active threats</div><div class="value" id="kpiThreats">—</div></div>
+  </div>
+
+  <section class="panel span-12">
+    <div class="panel-head">
+      <h2>Request rate and EWMA forecast</h2>
+      <span class="hint" id="rateHint">All routes</span>
+    </div>
+    <div class="chart-wrap"><canvas id="rpsChart"></canvas></div>
+  </section>
+
+  <section class="panel span-5">
+    <div class="panel-head">
+      <h2>Latency percentiles</h2>
+      <select id="latSelect" aria-label="Endpoint for latency chart"></select>
+    </div>
+    <div class="chart-wrap"><canvas id="latChart"></canvas></div>
+  </section>
+
+  <section class="panel span-7">
+    <div class="panel-head">
+      <h2>Routes and availability</h2>
+      <span class="hint">Last 1 minute. Select a row to chart its latency.</span>
+    </div>
+    <div class="table-wrap">
+      <table id="endpointsTable">
+        <thead><tr><th>Route</th><th>req/s</th><th>err %</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th><th>State</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="endpointsEmpty" class="empty">No traffic recorded yet.</div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Active threats</h2><span class="hint">Last 1 minute</span></div>
+    <div id="threats" class="feed"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Recent anomalies</h2><span class="hint">Newest first</span></div>
+    <div id="anomalies" class="feed"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const POLL_MS = 2000;
+const MAX_POINTS = 90; // Rolling ~3 minutes at a 2s poll
+// Matches streamguard.detection.evaluation-window-seconds, so observed and forecast rates compare like for like
+// Set from the server's evaluation window, so observed and forecast rates compare like for like
+let rateWindow = "15s";
+const COLORS = { grid: "#f4f4f5", axis: "#e4e4e7", muted: "#71717a", z900: "#18181b", z600: "#52525b", z400: "#a1a1aa", band: "rgba(161,161,170,0.18)", bad: "#b91c1c" };
+
+// Client-side history built from server-derived values; percentiles and anomalies are never computed here
+const labels = [];
+const rpsObserved = [], rpsPredicted = [], rpsBandLo = [], rpsBandHi = [], spikes = [];
+const latHistory = new Map(); // endpoint -> { p50: [], p95: [], p99: [] }, aligned with labels
+const seenAnomalies = new Set();
+let firstPoll = true;
+let selectedEndpoint = loadSelection();
+
+function loadSelection() { try { return localStorage.getItem("sg.latEndpoint"); } catch { return null; } }
+function saveSelection(ep) { try { localStorage.setItem("sg.latEndpoint", ep); } catch { /* storage unavailable */ } }
+
+const chartsAvailable = typeof Chart !== "undefined";
+let rpsChart = null, latChart = null;
+if (chartsAvailable) {
+  const base = {
+    animation: false, maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    scales: {
+      x: { grid: { color: COLORS.grid }, border: { color: COLORS.axis }, ticks: { color: COLORS.muted, maxTicksLimit: 8, maxRotation: 0 } },
+      y: { grid: { color: COLORS.grid }, border: { color: COLORS.axis }, ticks: { color: COLORS.muted }, beginAtZero: true }
+    },
+    plugins: { legend: { align: "end", labels: { color: COLORS.muted, usePointStyle: true, boxHeight: 8, font: { size: 12 } } } }
+  };
+  const line = (label, data, color, extra = {}) => ({ label, data, borderColor: color, backgroundColor: color,
+    borderWidth: 1.75, pointRadius: 0, pointHoverRadius: 3, tension: .25, spanGaps: true, pointStyle: "line", ...extra });
+
+  rpsChart = new Chart(document.getElementById("rpsChart"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "Forecast band", data: rpsBandHi, borderWidth: 0, pointRadius: 0, pointHoverRadius: 0,
+        backgroundColor: COLORS.band, fill: "+1", pointStyle: "rect", tension: .25, spanGaps: true },
+      { label: "band low", data: rpsBandLo, borderWidth: 0, pointRadius: 0, pointHoverRadius: 0, fill: false,
+        tension: .25, spanGaps: true },
+      line("Forecast req/s", rpsPredicted, COLORS.z400, { borderDash: [5, 4] }),
+      line("Observed req/s", rpsObserved, COLORS.z900, { borderWidth: 2 }),
+      { label: "Forecast spike", data: spikes, showLine: false, pointStyle: "triangle", pointRadius: 6,
+        pointHoverRadius: 8, backgroundColor: COLORS.bad, borderColor: COLORS.bad }
+    ]},
+    options: { ...base, plugins: { ...base.plugins,
+      legend: { labels: { ...base.plugins.legend.labels, filter: i => i.text !== "band low" } },
+      tooltip: { filter: i => i.dataset.label !== "band low" && i.raw != null } } }
+  });
+
+  latChart = new Chart(document.getElementById("latChart"), {
+    type: "line",
+    data: { labels, datasets: [
+      line("p50", [], COLORS.z400), line("p95", [], COLORS.z600), line("p99", [], COLORS.z900, { borderWidth: 2 })
+    ]},
+    options: { ...base, scales: {
+      x: { ...base.scales.x, ticks: { ...base.scales.x.ticks, maxTicksLimit: 4 } },
+      y: { ...base.scales.y, title: { display: true, text: "ms", color: COLORS.muted } } } }
+  });
+} else {
+  document.getElementById("chartError").style.display = "block";
+}
+
+async function getJson(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(url + " -> " + r.status);
+  return r.json();
+}
+
+function setStatus(live, msg) {
+  const el = document.getElementById("status");
+  el.className = live ? "live" : "stale";
+  el.textContent = msg;
+}
+
+function push(arr, v) { arr.push(v); if (arr.length > MAX_POINTS) arr.shift(); }
+
+async function tick() {
+  try {
+    const [rateSnaps, snaps, forecasts, threats, suspects, anomalies, availability] = await Promise.all([
+      getJson("api/routes?window=" + rateWindow),
+      getJson("api/routes?window=1m"),
+      getJson("api/forecast"),
+      getJson("api/security/threats"),
+      getJson("api/security/suspicious-ips?window=1m"),
+      getJson("api/anomalies"),
+      getJson("api/availability")
+    ]);
+    const states = new Map(availability.map(a => [a.endpoint, a.state]));
+    const now = new Date().toLocaleTimeString();
+
+    recordRates(now, rateSnaps, forecasts, anomalies);
+    recordLatency(snaps);
+    if (rpsChart) { rpsChart.update(); }
+    renderLatency();
+    renderKpis(snaps, states, threats.length + suspects.length);
+    renderEndpoints(snaps, states);
+    renderThreats(threats, suspects);
+    renderAnomalies(anomalies);
+    setStatus(true, "Updated " + now);
+  } catch (e) {
+    console.warn("poll failed", e);
+    setStatus(false, "Connection lost, retrying");
+  } finally {
+    setTimeout(tick, POLL_MS); // Chained, so a slow poll never overlaps the next one
+  }
+}
+
+function recordRates(now, rateSnaps, forecasts, anomalies) {
+  push(labels, now);
+  const observed = rateSnaps.reduce((s, x) => s + x.requestsPerSecond, 0);
+  // Total forecast is the sum of per-endpoint EWMAs; summing bands is a conservative upper bound
+  let predicted = 0, band = 0, warm = false;
+  for (const f of forecasts) {
+    predicted += f.forecastRps;
+    if (f.warm) { warm = true; band += f.bandRps; }
+  }
+  const hasForecast = forecasts.length > 0;
+  push(rpsObserved, round(observed));
+  push(rpsPredicted, hasForecast ? round(predicted) : null);
+  push(rpsBandLo, warm ? round(Math.max(0, predicted - band)) : null);
+  push(rpsBandHi, warm ? round(predicted + band) : null);
+
+  // Mark each FORECAST_SPIKE once, on the first poll that sees it; ignore ones logged before the page opened
+  let spikeNow = false;
+  for (const a of anomalies) {
+    const key = a.timestamp + "|" + a.endpoint + "|" + a.type;
+    if (seenAnomalies.has(key)) continue;
+    seenAnomalies.add(key);
+    if (!firstPoll && a.type === "FORECAST_SPIKE") spikeNow = true;
+  }
+  if (seenAnomalies.size > 500) { // Log holds 100, so old keys can go
+    const live = new Set(anomalies.map(a => a.timestamp + "|" + a.endpoint + "|" + a.type));
+    for (const k of seenAnomalies) if (!live.has(k)) seenAnomalies.delete(k);
+  }
+  firstPoll = false;
+  push(spikes, spikeNow ? round(observed) : null);
+}
+
+function recordLatency(snaps) {
+  const byEndpoint = new Map(snaps.map(s => [s.endpoint, s]));
+  for (const s of snaps) {
+    if (!latHistory.has(s.endpoint)) {
+      const pad = () => new Array(labels.length - 1).fill(null);
+      latHistory.set(s.endpoint, { p50: pad(), p95: pad(), p99: pad() });
+    }
+  }
+  for (const [ep, h] of latHistory) {
+    const s = byEndpoint.get(ep);
+    const has = s && s.totalRequests > 0;
+    push(h.p50, has ? s.p50Ms : null);
+    push(h.p95, has ? s.p95Ms : null);
+    push(h.p99, has ? s.p99Ms : null);
+    if (!s && h.p50.every(v => v == null)) latHistory.delete(ep); // Evicted endpoint with no history left
+  }
+  // Default to the busiest endpoint until the user picks one
+  if (!selectedEndpoint || !latHistory.has(selectedEndpoint)) {
+    const busiest = snaps.slice().sort((a, b) => b.totalRequests - a.totalRequests)[0];
+    selectedEndpoint = busiest ? busiest.endpoint : null;
+  }
+}
+
+function renderLatency() {
+  const select = document.getElementById("latSelect");
+  const options = [...latHistory.keys()].sort();
+  if (select.dataset.options !== options.join("\n")) {
+    select.innerHTML = options.map(ep => `<option value="${esc(ep)}">${esc(ep)}</option>`).join("");
+    select.dataset.options = options.join("\n");
+  }
+  if (selectedEndpoint) select.value = selectedEndpoint;
+  if (!latChart) return;
+  const h = latHistory.get(selectedEndpoint) || { p50: [], p95: [], p99: [] };
+  latChart.data.datasets[0].data = h.p50;
+  latChart.data.datasets[1].data = h.p95;
+  latChart.data.datasets[2].data = h.p99;
+  latChart.update();
+}
+
+function selectEndpoint(ep) {
+  selectedEndpoint = ep;
+  saveSelection(ep);
+  renderLatency();
+  document.querySelectorAll("#endpointsTable tbody tr").forEach(tr =>
+    tr.classList.toggle("selected", tr.dataset.endpoint === ep));
+}
+
+document.getElementById("latSelect").addEventListener("change", e => selectEndpoint(e.target.value));
+document.querySelector("#endpointsTable tbody").addEventListener("click", e => {
+  const tr = e.target.closest("tr");
+  if (tr) selectEndpoint(tr.dataset.endpoint);
+});
+
+function renderKpis(snaps, states, threatCount) {
+  const total = snaps.reduce((s, x) => s + x.totalRequests, 0);
+  const errors = snaps.reduce((s, x) => s + x.totalRequests * x.errorRate / 100, 0);
+  const rps = snaps.reduce((s, x) => s + x.requestsPerSecond, 0);
+  const errPct = total ? errors * 100 / total : 0;
+  const unhealthy = [...states.values()].filter(s => s !== "HEALTHY").length;
+  setKpi("kpiRps", round(rps).toFixed(1), "");
+  setKpi("kpiErr", errPct.toFixed(1) + "%", errPct >= 10 ? "bad" : errPct >= 5 ? "warn" : "");
+  setKpi("kpiUnhealthy", unhealthy + " of " + states.size, unhealthy ? "warn" : "");
+  setKpi("kpiThreats", String(threatCount), threatCount ? "bad" : "");
+}
+
+function setKpi(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "value " + cls;
+}
+
+function renderEndpoints(snaps, states) {
+  const tbody = document.querySelector("#endpointsTable tbody");
+  const rows = snaps.slice().sort((a, b) => b.requestsPerSecond - a.requestsPerSecond || a.endpoint.localeCompare(b.endpoint));
+  document.getElementById("endpointsEmpty").style.display = rows.length ? "none" : "block";
+  tbody.innerHTML = rows.map(s => {
+    // NOT_FOUND, REDIRECTION and UNKNOWN group unmatched requests and have no availability
+    const state = states.get(s.endpoint) || (s.endpoint.startsWith("/") ? "PENDING" : "NONE");
+    const idle = s.totalRequests === 0;
+    const cls = [idle ? "idle" : "", s.endpoint === selectedEndpoint ? "selected" : ""].join(" ");
+    return `<tr class="${cls}" data-endpoint="${esc(s.endpoint)}">
+      <td class="ep" title="${esc(s.endpoint)}">${esc(s.endpoint)}</td>
+      <td>${s.requestsPerSecond.toFixed(1)}</td>
+      <td class="${s.errorRate >= 10 ? "err-hi" : ""}">${s.errorRate.toFixed(1)}</td>
+      <td>${idle ? "—" : s.p50Ms}</td>
+      <td>${idle ? "—" : s.p95Ms}</td>
+      <td>${idle ? "—" : s.p99Ms}</td>
+      <td class="state ${esc(state)}" title="${state === "PENDING" ? "Awaiting first closed window" : ""}">${state === "NONE" ? "—" : esc(titleCase(state))}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderThreats(threats, suspects) {
+  const el = document.getElementById("threats");
+  const rows = [
+    ...suspects.map(s => ({ type: s.flag, who: s.ip, what: "", value: s.percentOfTotal.toFixed(1) + "% of traffic" })),
+    ...threats.map(t => ({
+      type: t.type, who: t.ip, what: t.endpoint ? "→ " + t.endpoint : "",
+      value: t.type === "BRUTE_FORCE" ? t.count + " auth failures" : t.count + " distinct targets"
+    }))
+  ];
+  if (!rows.length) { el.innerHTML = `<div class="empty">None detected.</div>`; return; }
+  el.innerHTML = rows.map(r => `<div class="row">
+      <span class="tag ${esc(r.type)}">${esc(r.type)}</span>
+      <span class="ep" title="${esc(r.who + " " + r.what)}">${esc(r.who)} ${esc(r.what)}</span>
+      <span class="v">${esc(r.value)}</span>
+    </div>`).join("");
+}
+
+// current/previous mean different things per type; FORECAST_SPIKE carries observed/forecast rps
+const ANOMALY_FORMAT = {
+  ERROR_SPIKE:    (c, p) => `${c.toFixed(1)}% err (was ${p.toFixed(1)}%)`,
+  LATENCY_SPIKE:  (c, p) => `p99 ${Math.round(c)} ms (was ${Math.round(p)})`,
+  TRAFFIC_SPIKE:  (c, p) => `${Math.round(c)} req (was ${Math.round(p)})`,
+  TRAFFIC_DROP:   (c, p) => `${Math.round(c)} req (was ${Math.round(p)})`,
+  FORECAST_SPIKE: (c, p) => `${c.toFixed(1)} req/s (forecast ${p.toFixed(1)})`
+};
+
+function renderAnomalies(anomalies) {
+  // The API already returns newest first
+  const el = document.getElementById("anomalies");
+  if (!anomalies.length) { el.innerHTML = `<div class="empty">None detected.</div>`; return; }
+  el.innerHTML = anomalies.slice(0, 50).map(a => {
+    const fmt = ANOMALY_FORMAT[a.type] || ((c, p) => `${round(c)} (was ${round(p)})`);
+    return `<div class="row">
+      <span class="t">${new Date(a.timestamp).toLocaleTimeString()}</span>
+      <span class="tag ${esc(a.type)}">${esc(a.type)}</span>
+      <span class="ep" title="${esc(a.endpoint)}">${esc(a.endpoint)}</span>
+      <span class="v">${esc(fmt(a.currentValue, a.previousValue))}</span>
+    </div>`;
+  }).join("");
+}
+
+function titleCase(s) { return s.charAt(0) + s.slice(1).toLowerCase(); }
+function round(v) { return v == null ? null : Math.round(v * 10) / 10; }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// API URLs are relative, so the page works under any base path or servlet context path
+getJson("api/info")
+  .then(info => {
+    rateWindow = info.evaluationWindowSeconds + "s";
+    document.getElementById("rateHint").textContent = "All routes, " + rateWindow + " evaluation window";
+  })
+  .catch(() => { /* keep the default window */ })
+  .finally(tick);
+</script>
+</body>
+</html>
