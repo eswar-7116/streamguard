@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: streamguard-demo
+
+streamguard:
+  filter:
+    # The traffic simulator spreads requests over fake client IPs with X-Forwarded-For.
+    # Only trust this header behind a proxy you control.
+    trust-forwarded-for: true
+  alert:
+    webhook-urls: ${ALERT_WEBHOOK_URL:}
+
+demo:
+  traffic:
+    enabled: ${DEMO_TRAFFIC:true}
