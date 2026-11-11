@@ -1,0 +1,19 @@
+{
+  "properties": [
+    { "name": "streamguard.enabled", "description": "Whether StreamGuard is enabled. When false the application is left untouched." },
+    { "name": "streamguard.web.enabled", "description": "Whether to serve the JSON API and dashboard. Monitoring and alerting run either way." },
+    { "name": "streamguard.web.base-path", "description": "Path the dashboard is served at. The JSON API lives under '<base-path>/api'. Must start with '/' and not end with '/'." },
+    { "name": "streamguard.routes.include", "description": "Path patterns to monitor, in Spring MVC syntax such as '/api/**'. Empty monitors every request." },
+    { "name": "streamguard.routes.exclude", "description": "Path patterns never monitored, even when included." },
+    { "name": "streamguard.routes.auth", "description": "Login and token routes. Repeated 401/403 responses from one client on these are reported as brute force." },
+    { "name": "streamguard.windows.bucket-size-seconds", "description": "Resolution of the sliding windows, in seconds." },
+    { "name": "streamguard.windows.max-window-seconds", "description": "Longest window that can be queried, in seconds." },
+    { "name": "streamguard.detection.evaluation-window-seconds", "description": "Length of the closed windows compared for anomalies, availability and forecasting." },
+    { "name": "streamguard.forecast.base-alpha", "description": "Resting EWMA smoothing factor, between 0 and 1. Higher reacts faster." },
+    { "name": "streamguard.forecast.spike-sigma", "description": "How many deviations above the forecast count as a FORECAST_SPIKE." },
+    { "name": "streamguard.forecast.min-requests", "description": "Minimum requests in a window before forecast spikes are raised." },
+    { "name": "streamguard.filter.trust-forwarded-for", "description": "Read the client IP from X-Forwarded-For. Only enable behind a proxy you control." },
+    { "name": "streamguard.alert.webhook-urls", "description": "URLs every alert is POSTed to as JSON." },
+    { "name": "streamguard.alert.allow-runtime-updates", "description": "Allow replacing the webhook list through the HTTP API. Off by default, since anyone who can reach the API could redirect alerts." }
+  ]
+}
