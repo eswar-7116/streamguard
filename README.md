@@ -1,5 +1,7 @@
 # StreamGuard
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.eswar-7116/streamguard-spring-boot-starter)](https://central.sonatype.com/artifact/io.github.eswar-7116/streamguard-spring-boot-starter)
+
 **Real-time traffic monitoring, anomaly detection and threat signals for Spring Boot applications,
 added as a single dependency.** No agent, no database, no message queue.
 
@@ -11,6 +13,17 @@ brute-force, scanner and DDoS patterns. Results are served on a built-in dashboa
 alerts go to any webhook.
 
 ![StreamGuard dashboard](docs/dashboard.gif)
+
+## Why StreamGuard?
+
+**Who sets up a monitoring stack when one dependency does the watching and serves a live dashboard?**
+
+Monitoring usually means setting up a collector, a store and dashboards next to your
+application, then configuring all of it. With StreamGuard you add a single dependency
+and your application reports on itself: a live dashboard, spike and anomaly detection,
+brute-force, scanner and DDoS signals, and webhook alerts, all working on defaults.
+
+It's built for services where a monitoring stack would be bigger than the app. It covers a single instance and the last 15 minutes of traffic today. It works with zero configuration, and you can tune routes when you need to.
 
 ## Features
 
@@ -117,16 +130,18 @@ See [DEMO.md](DEMO.md) for a walkthrough.
 
 ## How it works
 
-```
- HTTP request ──► RequestMetricsFilter ──► WindowedAggregator ──► per-route / per-client sliding windows
-                  (route template,          (lock-free writes)      (1s buckets: counters + histogram)
-                   registered routes)               │
-                       ┌────────────────────────────┼─────────────────────────────┐
-                       ▼                            ▼                             ▼
-               WindowEvaluator (every         SecurityAnalyzer             /streamguard API + dashboard
-               closed 15s window)             (DDoS, brute force,          (live reads, O(buckets))
-               anomalies, availability,        scanners)
-               EWMA forecast ──► AlertPublisher ──► log + webhooks
+```mermaid
+flowchart TD
+    REQ([HTTP request]) --> FILTER["RequestMetricsFilter<br/><i>route template, registered routes</i>"]
+    FILTER --> AGG["WindowedAggregator<br/><i>lock-free writes</i>"]
+    AGG --> WIN[("Per-route / per-client sliding windows<br/><i>1s buckets: counters + histogram</i>")]
+
+    WIN --> EVAL["WindowEvaluator<br/><i>every closed 15s window</i><br/>anomalies, availability, EWMA forecast"]
+    WIN --> SEC["SecurityAnalyzer<br/>DDoS, brute force, scanners"]
+    WIN --> API["/streamguard API + dashboard<br/><i>live reads, O(buckets)</i>"]
+
+    EVAL --> ALERT["AlertPublisher"]
+    ALERT --> OUT(["log + webhooks"])
 ```
 
 Each sliding window cuts time into 1-second buckets of `LongAdder` counters and a mergeable latency
