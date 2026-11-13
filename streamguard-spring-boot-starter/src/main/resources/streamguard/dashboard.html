@@ -78,8 +78,9 @@
   .feed .ep { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag { font-size: 11px; font-weight: 500; letter-spacing: .2px; color: var(--fg-2); white-space: nowrap;
          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .tag.ERROR_SPIKE, .tag.LATENCY_SPIKE, .tag.POTENTIAL_DDOS, .tag.BRUTE_FORCE { color: var(--bad); }
+  .tag.ERROR_SPIKE, .tag.ERROR_RATE_HIGH, .tag.LATENCY_SPIKE, .tag.POTENTIAL_DDOS, .tag.BRUTE_FORCE { color: var(--bad); }
   .tag.SCANNER, .tag.TRAFFIC_DROP { color: var(--warn); }
+  .tag.ERROR_RATE_RESOLVED { color: var(--ok); }
   .empty { color: var(--muted); padding: 8px 0; }
   .error-banner { grid-column: 1 / -1; background: #fef2f2; color: var(--bad); border: 1px solid #fecaca;
                   border-radius: 6px; padding: 10px 14px; display: none; }
@@ -394,9 +395,11 @@ function renderThreats(threats, suspects) {
     </div>`).join("");
 }
 
-// current/previous mean different things per type; FORECAST_SPIKE carries observed/forecast rps
+// current/previous mean different things per type; FORECAST_SPIKE carries observed/forecast rps, ERROR_RATE_* the threshold
 const ANOMALY_FORMAT = {
   ERROR_SPIKE:    (c, p) => `${c.toFixed(1)}% err (was ${p.toFixed(1)}%)`,
+  ERROR_RATE_HIGH:     (c, p) => `${c.toFixed(1)}% err (≥ ${p.toFixed(0)}%)`,
+  ERROR_RATE_RESOLVED: (c, p) => `${c.toFixed(1)}% err (< ${p.toFixed(0)}%)`,
   LATENCY_SPIKE:  (c, p) => `p99 ${Math.round(c)} ms (was ${Math.round(p)})`,
   TRAFFIC_SPIKE:  (c, p) => `${Math.round(c)} req (was ${Math.round(p)})`,
   TRAFFIC_DROP:   (c, p) => `${Math.round(c)} req (was ${Math.round(p)})`,

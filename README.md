@@ -205,7 +205,8 @@ to 1 minute.
 
 | Signal | Fires when |
 |---|---|
-| `ERROR_SPIKE` | Error rate is more than 3× the previous window's (floored at 5%) |
+| `ERROR_SPIKE` | Error rate is more than 3× the previous window's (floored at `error-rate-floor-pct`, 5%) and the rise is statistically significant (two-proportion z-test, z ≥ `error-spike-min-z`, 3.09). Not raised while the route has an open `ERROR_RATE_HIGH`. |
+| `ERROR_RATE_HIGH` / `ERROR_RATE_RESOLVED` | A sustained-failure alert. Opens when the error rate is at least `error-rate-threshold-pct` (50%) over both the last `error-rate-long-window-seconds` (3 min, with ≥ `min-requests`) and the current window. Resolves after `error-rate-resolve-windows` (2) consecutive windows below `error-rate-recovery-pct` (25%). While open it repeats every `error-rate-repeat-interval-seconds` (4 h) instead of every window. Catches a route that keeps failing, which `ERROR_SPIKE` stops seeing once the failure is the baseline. |
 | `LATENCY_SPIKE` | p99 is more than 2× the previous window's (floored at 100 ms), with ≥100 samples in each |
 | `TRAFFIC_SPIKE` / `TRAFFIC_DROP` | Request count above 5× or below 20% of the previous window's |
 | `FORECAST_SPIKE` | Rate exceeds the EWMA forecast by more than `spike-sigma` deviations, after 3 windows of history. The band is never narrower than the random variation expected at that rate. |
@@ -214,10 +215,28 @@ to 1 minute.
 | `BRUTE_FORCE` | More than 10 401/403 responses on a registered auth route from one client in a minute |
 | `SCANNER` | One client requests more than 20 distinct targets in a minute: routes, or raw paths for requests that matched none |
 
-Windows need at least 20 requests before ratios are compared, and a window is only compared with
+Windows need at least `min-requests` (20) requests before ratios are compared, and a window is only compared with
 one the route was fully observed for, so a restart doesn't look like a traffic spike. `NOT_FOUND`,
 `REDIRECTION` and `UNKNOWN` appear in the metrics but are not evaluated for anomalies or
 availability.
+
+The error alerts follow established practice rather than inventing thresholds. `min-requests` 20
+and a 50% threshold are Hystrix's circuit-breaker defaults (Envoy's outlier detection and
+Resilience4j pair a failure percentage with a minimum volume the same way). Opening on a long and a
+short window is the Google SRE Workbook's multiwindow alert, with the short window 1/12 of the long
+one; the long window also gives low-traffic routes enough samples. A lower recovery threshold is
+Datadog's recovery threshold, the resolve window count is Grafana's "keep firing for", and the
+repeat interval is Alertmanager's `repeat_interval` (4 h by default). Sudden jumps that may be over
+before the long window confirms them are still reported by `ERROR_SPIKE`.
+
+`ERROR_SPIKE` needs both a 3× rise and a significant one. Near `min-requests` the ratio alone is
+mostly noise: on a route with 20 requests per window and a steady 5% error rate, it fires about 67
+times a day with nothing wrong (about 300 at 10%). The z-test brings both down to under 1 a day. A
+significance test alone would be worse on busy routes, where it flags rises too small to act on
+(1% to 1.3% over 100,000 requests), so the ratio stays as the "is this big enough" check. The cost
+is that a moderate jump on a quiet route needs more than one window of evidence: 2% to 20% over 20
+requests is no longer caught on its first window. Large jumps still are (2% to 80%: 99.9%), and
+`ERROR_RATE_HIGH` catches failures that persist.
 
 ## Configuration
 
@@ -232,6 +251,14 @@ availability.
 | `streamguard.alert.webhook-urls` | (none) | URLs every alert is POSTed to |
 | `streamguard.alert.allow-runtime-updates` | `false` | Allow `PUT /alerts/webhooks` |
 | `streamguard.detection.evaluation-window-seconds` | `15` | Length of the windows compared |
+| `streamguard.detection.min-requests` | `20` | Minimum window volume before anomaly and error-rate rules evaluate it |
+| `streamguard.detection.error-rate-floor-pct` | `5.0` | Lowest baseline `ERROR_SPIKE` compares against |
+| `streamguard.detection.error-spike-min-z` | `3.09` | Significance an `ERROR_SPIKE` rise must reach (0.1% false-positive chance per window); `0` disables the test |
+| `streamguard.detection.error-rate-threshold-pct` | `50.0` | Error rate that opens `ERROR_RATE_HIGH`; above 100 disables it |
+| `streamguard.detection.error-rate-long-window-seconds` | `180` | Window the threshold must also hold over; at most `max-window-seconds` |
+| `streamguard.detection.error-rate-recovery-pct` | `25.0` | Error rate that counts toward resolving it |
+| `streamguard.detection.error-rate-resolve-windows` | `2` | Consecutive windows below recovery that resolve it |
+| `streamguard.detection.error-rate-repeat-interval-seconds` | `14400` | Reminder interval for an open alert; `0` never repeats |
 | `streamguard.forecast.base-alpha` | `0.3` | Resting EWMA smoothing factor |
 | `streamguard.forecast.spike-sigma` | `3.0` | Deviations above forecast that count as a spike |
 | `streamguard.forecast.min-requests` | `20` | Minimum window volume for forecast alerts |

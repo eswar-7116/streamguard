@@ -15,8 +15,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WindowEvaluatorTest {
 
@@ -29,7 +31,7 @@ class WindowEvaluatorTest {
     private final AvailabilityStateMachine availability = new AvailabilityStateMachine(clock);
     private final TrafficForecaster forecaster = new TrafficForecaster(props);
     private final WindowEvaluator evaluator = new WindowEvaluator(
-            aggregator, new AnomalyDetector(), log, new AlertPublisher(List.of()), availability,
+            aggregator, new AnomalyDetector(props.detection()), new ErrorRateMonitor(props.detection()), log, new AlertPublisher(List.of()), availability,
             forecaster, clock, props);
 
     private void traffic(long windowStart, int requests, double errorShare) {
@@ -41,19 +43,56 @@ class WindowEvaluatorTest {
 
     @Test
     void comparesConsecutiveClosedWindowsAndLogsSpike() {
+        // 2% -> 20%: a relative spike that stays under the 50% alert threshold
         traffic(T0, 100, 0.02);
-        traffic(T0 + 15_000, 100, 0.80);
+        traffic(T0 + 15_000, 100, 0.20);
 
         evaluator.evaluate(T0 + 30_000);
 
         assertThat(log.recent()).singleElement().satisfies(e -> {
             assertThat(e.type()).isEqualTo(AnomalyType.ERROR_SPIKE);
             assertThat(e.endpoint()).isEqualTo("/api/orders");
-            assertThat(e.currentValue()).isEqualTo(80.0);
+            assertThat(e.currentValue()).isEqualTo(20.0);
             assertThat(e.previousValue()).isEqualTo(2.0);
             assertThat(e.timestamp()).isEqualTo(T0 + 30_000);
         });
         assertThat(availability.availability("/api/orders").orElseThrow().state()).isEqualTo(EndpointState.HEALTHY);
+    }
+
+    @Test
+    void sustainedFailureIsReportedOnceThenResolved() {
+        // Windows: 2%, then 80% x4, then 5% x2, all within the 180s long window
+        int[] errorsPerWindow = {2, 80, 80, 80, 80, 5, 5};
+        Clock late = Clock.fixed(Instant.ofEpochMilli(T0 + 121_000), ZoneOffset.UTC);
+        WindowedAggregator agg = new WindowedAggregator(props, late);
+        WindowEvaluator ev = new WindowEvaluator(
+                agg, new AnomalyDetector(props.detection()), new ErrorRateMonitor(props.detection()), log,
+                new AlertPublisher(List.of()), availability, forecaster, late, props);
+        for (int w = 0; w < errorsPerWindow.length; w++) {
+            for (int i = 0; i < 100; i++) {
+                int status = i < errorsPerWindow[w] ? 500 : 200;
+                agg.recordEvent(new RequestEvent(T0 + w * 15_000L + (i % 15) * 1000L, "/api/orders", "GET", status, 50, 0, "10.0.0.1"));
+            }
+        }
+
+        for (int w = 1; w <= errorsPerWindow.length; w++) {
+            ev.evaluate(T0 + w * 15_000L);
+        }
+
+        // Jump is an ERROR_SPIKE, the next 80% window lifts the long window to 54% and opens the alert, two 5% windows resolve it
+        assertThat(log.recent().reversed()).extracting(AnomalyEvent::type).containsExactly(
+                AnomalyType.ERROR_SPIKE, AnomalyType.ERROR_RATE_HIGH, AnomalyType.ERROR_RATE_RESOLVED);
+    }
+
+    @Test
+    void rejectsLongWindowBeyondRetention() {
+        StreamGuardProperties tooLong = TestProperties.of(Map.of(
+                "streamguard.windows.max-window-seconds", "120"));
+        WindowedAggregator agg = new WindowedAggregator(tooLong, clock);
+        assertThatThrownBy(() -> new WindowEvaluator(
+                agg, new AnomalyDetector(tooLong.detection()), new ErrorRateMonitor(tooLong.detection()), log,
+                new AlertPublisher(List.of()), availability, forecaster, clock, tooLong))
+                .hasMessageContaining("must not exceed streamguard.windows.max-window-seconds (120)");
     }
 
     @Test
@@ -77,7 +116,7 @@ class WindowEvaluatorTest {
         Clock later = Clock.offset(clock, Duration.ofMinutes(16));
         WindowedAggregator agg = new WindowedAggregator(props, later);
         WindowEvaluator lateEvaluator = new WindowEvaluator(
-                agg, new AnomalyDetector(), log, new AlertPublisher(List.of()), availability, forecaster, later, props);
+                agg, new AnomalyDetector(props.detection()), new ErrorRateMonitor(props.detection()), log, new AlertPublisher(List.of()), availability, forecaster, later, props);
         lateEvaluator.evaluate(T0 + 30_000 + 16 * 60_000);
 
         assertThat(availability.availability("/api/orders")).isEmpty();

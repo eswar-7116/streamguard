@@ -63,8 +63,52 @@ public record StreamGuardProperties(
     ) {
     }
 
-    /** @param evaluationWindowSeconds length of the closed windows compared for anomalies and availability */
-    public record Detection(@DefaultValue("15") int evaluationWindowSeconds) {
+    /**
+     * @param evaluationWindowSeconds        length of the closed windows compared for anomalies and availability
+     * @param minRequests                    windows below this volume are not evaluated, so small samples don't false-alarm
+     * @param errorRateFloorPct              ERROR_SPIKE compares against the previous error rate, but never one below this
+     * @param errorSpikeMinZ                 standard errors a rise must clear before ERROR_SPIKE fires; 0 disables the check
+     * @param errorRateThresholdPct          error rate (0–100) that opens an ERROR_RATE_HIGH alert; above 100 disables it
+     * @param errorRateLongWindowSeconds     window the threshold must also hold over, so blips don't open the alert
+     * @param errorRateRecoveryPct           error rate the route must drop below to resolve the alert
+     * @param errorRateResolveWindows        consecutive windows below the recovery rate before the alert resolves
+     * @param errorRateRepeatIntervalSeconds how often an open alert is raised again; 0 never repeats
+     */
+    public record Detection(
+            @DefaultValue("15") int evaluationWindowSeconds,
+            @DefaultValue("20") int minRequests,
+            @DefaultValue("5.0") double errorRateFloorPct,
+            @DefaultValue("3.09") double errorSpikeMinZ,
+            @DefaultValue("50.0") double errorRateThresholdPct,
+            @DefaultValue("180") int errorRateLongWindowSeconds,
+            @DefaultValue("25.0") double errorRateRecoveryPct,
+            @DefaultValue("2") int errorRateResolveWindows,
+            @DefaultValue("14400") long errorRateRepeatIntervalSeconds
+    ) {
+        public Detection {
+            if (minRequests < 1) {
+                throw new IllegalArgumentException("min-requests must be >= 1, got " + minRequests);
+            }
+            if (errorSpikeMinZ < 0) {
+                throw new IllegalArgumentException("error-spike-min-z must be >= 0, got " + errorSpikeMinZ);
+            }
+            if (errorRateRecoveryPct > errorRateThresholdPct) {
+                throw new IllegalArgumentException("error-rate-recovery-pct (" + errorRateRecoveryPct
+                        + ") must not exceed error-rate-threshold-pct (" + errorRateThresholdPct + ")");
+            }
+            if (errorRateLongWindowSeconds < evaluationWindowSeconds) {
+                throw new IllegalArgumentException("error-rate-long-window-seconds (" + errorRateLongWindowSeconds
+                        + ") must be at least evaluation-window-seconds (" + evaluationWindowSeconds + ")");
+            }
+            if (errorRateResolveWindows < 1) {
+                throw new IllegalArgumentException(
+                        "error-rate-resolve-windows must be >= 1, got " + errorRateResolveWindows);
+            }
+            if (errorRateRepeatIntervalSeconds < 0) {
+                throw new IllegalArgumentException(
+                        "error-rate-repeat-interval-seconds must be >= 0, got " + errorRateRepeatIntervalSeconds);
+            }
+        }
     }
 
     /**

@@ -6,6 +6,9 @@ import java.util.function.ToDoubleFunction;
 
 public enum AnomalyType {
     ERROR_SPIKE(WindowSnapshot::errorRate),
+    // Absolute-threshold alert lifecycle; previous carries the threshold crossed
+    ERROR_RATE_HIGH(WindowSnapshot::errorRate),
+    ERROR_RATE_RESOLVED(WindowSnapshot::errorRate),
     LATENCY_SPIKE(WindowSnapshot::p99Ms),
     TRAFFIC_SPIKE(WindowSnapshot::totalRequests),
     TRAFFIC_DROP(WindowSnapshot::totalRequests),

@@ -6,6 +6,7 @@ import io.github.eswar7116.streamguard.availability.AvailabilityStateMachine;
 import io.github.eswar7116.streamguard.config.StreamGuardProperties;
 import io.github.eswar7116.streamguard.detection.AnomalyDetector;
 import io.github.eswar7116.streamguard.detection.AnomalyLog;
+import io.github.eswar7116.streamguard.detection.ErrorRateMonitor;
 import io.github.eswar7116.streamguard.detection.WindowEvaluator;
 import io.github.eswar7116.streamguard.filter.RequestMetricsFilter;
 import io.github.eswar7116.streamguard.forecast.TrafficForecaster;
@@ -46,13 +47,9 @@ public class StreamGuardAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RouteMatcher streamGuardRouteMatcher(StreamGuardProperties properties,
-                                                ObjectProvider<StreamGuardConfigurer> configurers) {
+    public RouteMatcher streamGuardRouteMatcher(StreamGuardProperties properties, ObjectProvider<StreamGuardConfigurer> configurers) {
         StreamGuardProperties.Routes routes = properties.routes();
-        RouteRegistry registry = new RouteRegistry()
-                .monitor(routes.include().toArray(String[]::new))
-                .exclude(routes.exclude().toArray(String[]::new))
-                .authRoutes(routes.auth().toArray(String[]::new));
+        RouteRegistry registry = new RouteRegistry().monitor(routes.include().toArray(String[]::new)).exclude(routes.exclude().toArray(String[]::new)).authRoutes(routes.auth().toArray(String[]::new));
         configurers.orderedStream().forEach(c -> c.configureRoutes(registry));
         return new RouteMatcher(validBasePath(properties), registry);
     }
@@ -78,8 +75,7 @@ public class StreamGuardAutoConfiguration {
     }
 
     @Bean
-    public AlertPublisher streamGuardAlertPublisher(StreamGuardProperties properties,
-                                                    ObjectProvider<RestClient.Builder> restClientBuilder) {
+    public AlertPublisher streamGuardAlertPublisher(StreamGuardProperties properties, ObjectProvider<RestClient.Builder> restClientBuilder) {
         return new AlertPublisher(properties.alert().webhookUrls(), restClientBuilder.getIfAvailable(RestClient::builder));
     }
 
@@ -89,29 +85,18 @@ public class StreamGuardAutoConfiguration {
     }
 
     @Bean
-    public WindowEvaluator streamGuardWindowEvaluator(WindowedAggregator aggregator, AnomalyLog anomalyLog,
-                                                      AlertPublisher alertPublisher,
-                                                      AvailabilityStateMachine availability,
-                                                      TrafficForecaster forecaster, StreamGuardProperties properties) {
-        return new WindowEvaluator(aggregator, new AnomalyDetector(), anomalyLog, alertPublisher, availability,
-                forecaster, clock, properties);
+    public WindowEvaluator streamGuardWindowEvaluator(WindowedAggregator aggregator, AnomalyLog anomalyLog, AlertPublisher alertPublisher, AvailabilityStateMachine availability, TrafficForecaster forecaster, StreamGuardProperties properties) {
+        return new WindowEvaluator(aggregator, new AnomalyDetector(properties.detection()), new ErrorRateMonitor(properties.detection()), anomalyLog, alertPublisher, availability, forecaster, clock, properties);
     }
 
     @Bean
-    public StreamGuardScheduler streamGuardScheduler(WindowEvaluator evaluator, WindowedAggregator aggregator,
-                                                     SecurityAnalyzer securityAnalyzer) {
-        return new StreamGuardScheduler()
-                .every(1_000, "window evaluation", evaluator::tick)
-                .every(60_000, "idle window eviction", aggregator::evictIdleWindows)
-                .every(60_000, "scanner state eviction", securityAnalyzer::evictStaleEndpointSets);
+    public StreamGuardScheduler streamGuardScheduler(WindowEvaluator evaluator, WindowedAggregator aggregator, SecurityAnalyzer securityAnalyzer) {
+        return new StreamGuardScheduler().every(1_000, "window evaluation", evaluator::tick).every(60_000, "idle window eviction", aggregator::evictIdleWindows).every(60_000, "scanner state eviction", securityAnalyzer::evictStaleEndpointSets);
     }
 
     @Bean
-    public FilterRegistrationBean<RequestMetricsFilter> streamGuardFilter(WindowedAggregator aggregator,
-                                                                          RouteMatcher routes,
-                                                                          StreamGuardProperties properties) {
-        FilterRegistrationBean<RequestMetricsFilter> registration = new FilterRegistrationBean<>(
-                new RequestMetricsFilter(aggregator, routes, clock, properties.filter().trustForwardedFor()));
+    public FilterRegistrationBean<RequestMetricsFilter> streamGuardFilter(WindowedAggregator aggregator, RouteMatcher routes, StreamGuardProperties properties) {
+        FilterRegistrationBean<RequestMetricsFilter> registration = new FilterRegistrationBean<>(new RequestMetricsFilter(aggregator, routes, clock, properties.filter().trustForwardedFor()));
         registration.setName("streamGuardFilter");
         registration.setOrder(RequestMetricsFilter.ORDER);
         return registration;
@@ -122,14 +107,8 @@ public class StreamGuardAutoConfiguration {
     static class WebConfiguration {
 
         @Bean
-        public StreamGuardApiController streamGuardApiController(WindowedAggregator aggregator, AnomalyLog anomalyLog,
-                                                                 AvailabilityStateMachine availability,
-                                                                 SecurityAnalyzer securityAnalyzer,
-                                                                 TrafficForecaster forecaster,
-                                                                 AlertPublisher alertPublisher,
-                                                                 StreamGuardProperties properties) {
-            return new StreamGuardApiController(aggregator, anomalyLog, availability, securityAnalyzer, forecaster,
-                    alertPublisher, properties);
+        public StreamGuardApiController streamGuardApiController(WindowedAggregator aggregator, AnomalyLog anomalyLog, AvailabilityStateMachine availability, SecurityAnalyzer securityAnalyzer, TrafficForecaster forecaster, AlertPublisher alertPublisher, StreamGuardProperties properties) {
+            return new StreamGuardApiController(aggregator, anomalyLog, availability, securityAnalyzer, forecaster, alertPublisher, properties);
         }
 
         @Bean
@@ -142,8 +121,7 @@ public class StreamGuardAutoConfiguration {
     static String validBasePath(StreamGuardProperties properties) {
         String basePath = properties.web().basePath();
         if (basePath == null || !basePath.startsWith("/") || basePath.length() < 2 || basePath.endsWith("/")) {
-            throw new IllegalStateException("streamguard.web.base-path must start with '/', not end with '/' "
-                    + "and not be '/' (got '" + basePath + "')");
+            throw new IllegalStateException("streamguard.web.base-path must start with '/', not end with '/' " + "and not be '/' (got '" + basePath + "')");
         }
         return basePath;
     }

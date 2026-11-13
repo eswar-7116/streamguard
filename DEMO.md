@@ -17,7 +17,7 @@ simulated clients, and scripts an incident every 40 seconds, cycling through:
 
 | Incident | What you see |
 |---|---|
-| 80% of one route's requests fail for 30 s | `ERROR_SPIKE` in the anomaly feed, the route's error rate turns red |
+| 80% of one route's requests fail for 30 s | `ERROR_SPIKE` in the anomaly feed, the route's error rate turns red. Too short to open a sustained `ERROR_RATE_HIGH` alert. |
 | 20 failed logins from `203.0.113.7` | `BRUTE_FORCE` on `/api/auth/login` under active threats |
 | 25 requests for paths like `/.env` and `/wp-admin` from `198.51.100.23` | `SCANNER` under active threats; the misses are grouped as `NOT_FOUND` |
 
